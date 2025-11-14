@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, AssistantStatus, Timer, ScheduledEvent } from './types';
 import { createChatSession, performSearch } from './services/geminiService';
@@ -31,7 +32,23 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A';
+
+/**
+ * Removes markdown formatting from a string for clean speech synthesis.
+ * @param text The text to clean.
+ * @returns The cleaned text.
+ */
+const cleanForSpeech = (text: string): string => {
+    return text
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1') // Remove URLs from markdown links, keeping the text
+        .replace(/\*\*/g, '') // Remove bold markers
+        .replace(/\*/g, '') // Remove asterisks
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .trim();
+};
+
 
 const App: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -218,7 +235,7 @@ const App: React.FC = () => {
                             const sourceLinks = sources
                                 .map((chunk: any) => chunk.web)
                                 .filter(Boolean) 
-                                .map((web: any) => `* [${web.title}](${web.uri})`)
+                                .map((web: any) => `[${web.title}](${web.uri})`)
                                 .join('\n');
                             if (sourceLinks) {
                                 sourcesText = `\n\n**Sources:**\n${sourceLinks}`;
@@ -234,11 +251,11 @@ const App: React.FC = () => {
                 
                 addMessage(confirmationText, 'reggie');
                 setStatus('speaking');
-                speak(confirmationText, selectedVoiceURI);
+                speak(cleanForSpeech(confirmationText), selectedVoiceURI);
             } else if (responseText) {
                 addMessage(responseText, 'reggie');
                 setStatus('speaking');
-                speak(responseText, selectedVoiceURI);
+                speak(cleanForSpeech(responseText), selectedVoiceURI);
             } else {
                  const fallback = "Sorry, Sir, I couldn't process that.";
                  addMessage(fallback, 'reggie');
