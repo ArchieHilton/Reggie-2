@@ -71,6 +71,9 @@ const App: React.FC = () => {
     const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
     const wakeLockRef = useRef<any>(null); // For Screen Wake Lock API
 
+    const commandTimerRef = useRef<number | null>(null);
+    const fullTranscriptRef = useRef<string>('');
+
     // Screen Wake Lock Effect
     useEffect(() => {
         const requestWakeLock = async () => {
@@ -191,6 +194,9 @@ const App: React.FC = () => {
                     };
                     setTimers(prev => [...prev, newTimer]);
                     confirmationText = `Okay Sir, I've set a ${args.label ? `${args.label} ` : ''}timer for ${args.durationInSeconds} seconds.`;
+                } else if (name === 'getCurrentTime') {
+                    const now = new Date();
+                    confirmationText = `Sir, the current time is ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
                 } else if (name === 'findMusic' && args.query) {
                     const query = args.query as string;
                     const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
@@ -283,30 +289,53 @@ const App: React.FC = () => {
     }, [speak, status, selectedVoiceURI, apiKey]);
 
     const handleSpeechResult = useCallback((finalTranscript: string, interimTranscript: string) => {
-        setLiveTranscript(interimTranscript);
-
-        if (!finalTranscript) return; // Only act on final transcripts
-
-        setLiveTranscript(''); // Clear live transcript after final result
-        const lowerTranscript = finalTranscript.toLowerCase();
-
-        if (isAwaitingCommand) {
-            setIsAwaitingCommand(false);
-            if (finalTranscript.trim()) {
-                processCommand(finalTranscript);
-            } else {
-                setStatus('idle'); // If nothing is said, return to idle
-            }
-        } else if (lowerTranscript.includes("hey reggie")) {
-            const command = finalTranscript.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
-            if (command) {
-                processCommand(command);
-            } else {
-                setIsAwaitingCommand(true);
-                setStatus('speaking');
-                speak("Yes, Sir?", selectedVoiceURI);
-            }
+        // If there's a final transcript, append it to the ref to build the full sentence.
+        if (finalTranscript) {
+            fullTranscriptRef.current = (fullTranscriptRef.current + ' ' + finalTranscript).trim();
         }
+        
+        // Update the visual live transcript. Show interim if available, otherwise show the accumulating final transcript.
+        setLiveTranscript(interimTranscript || fullTranscriptRef.current);
+
+        // Clear any existing timer to reset the "pause" countdown
+        if (commandTimerRef.current) {
+            clearTimeout(commandTimerRef.current);
+        }
+
+        // Set a new timer. If the user keeps talking, this timer will be reset.
+        // It only fires when the user pauses for 1.2 seconds.
+        commandTimerRef.current = window.setTimeout(() => {
+            const transcriptToProcess = fullTranscriptRef.current;
+            fullTranscriptRef.current = ''; // Reset for the next complete utterance.
+            setLiveTranscript(''); // Clear the display now that we're processing.
+
+            if (!transcriptToProcess) {
+                // This block runs if the timer fires after a pause with no new final text.
+                // e.g., user was prompted "Yes, sir?" but remained silent.
+                if (isAwaitingCommand) {
+                    setIsAwaitingCommand(false);
+                    setStatus('idle');
+                }
+                return;
+            }
+
+            const lowerTranscript = transcriptToProcess.toLowerCase();
+            
+            if (isAwaitingCommand) {
+                setIsAwaitingCommand(false);
+                processCommand(transcriptToProcess);
+            } else if (lowerTranscript.includes("hey reggie")) {
+                const command = transcriptToProcess.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
+                if (command) {
+                    processCommand(command);
+                } else {
+                    setIsAwaitingCommand(true);
+                    setStatus('speaking');
+                    speak("Yes, Sir?", selectedVoiceURI);
+                }
+            }
+        }, 1200); // 1.2 second pause before processing.
+
     }, [isAwaitingCommand, processCommand, speak, selectedVoiceURI]);
 
     const { error: speechError, startListening } = useSpeechRecognition(handleSpeechResult);

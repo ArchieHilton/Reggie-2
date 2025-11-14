@@ -112,7 +112,17 @@ const searchWeb: FunctionDeclaration = {
   },
 };
 
-const tools = [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic, openApplication, searchWeb] }];
+const getCurrentTime: FunctionDeclaration = {
+  name: 'getCurrentTime',
+  description: 'Gets the current local time.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}, // No parameters
+    required: [],
+  },
+};
+
+const tools = [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic, openApplication, searchWeb, getCurrentTime] }];
 const systemInstruction = "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, open applications, search the web, and engage in general conversation on any topic.";
 
 /**
