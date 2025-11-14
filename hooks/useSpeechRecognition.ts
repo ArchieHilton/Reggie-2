@@ -1,30 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-// Fix: Add type definitions for the experimental Web Speech API to resolve TypeScript errors.
+// Type definitions for the experimental Web Speech API
 interface SpeechRecognitionAlternative {
   readonly transcript: string;
 }
-
 interface SpeechRecognitionResult {
   readonly isFinal: boolean;
   readonly[index: number]: SpeechRecognitionAlternative;
 }
-
 interface SpeechRecognitionResultList {
   readonly length: number;
   item(index: number): SpeechRecognitionResult;
   [index: number]: SpeechRecognitionResult;
 }
-
 interface SpeechRecognitionEvent extends Event {
   readonly resultIndex: number;
   readonly results: SpeechRecognitionResultList;
 }
-
 interface SpeechRecognitionErrorEvent extends Event {
-  readonly error: string;
+  readonly error: any; 
+  readonly message?: string;
 }
-
 interface SpeechRecognition extends EventTarget {
     continuous: boolean;
     interimResults: boolean;
@@ -37,17 +33,16 @@ interface SpeechRecognition extends EventTarget {
     stop: () => void;
 }
 
-
-// FIX: Cast `window` to `any` to access experimental browser APIs without TypeScript errors.
-// The constant is renamed to `SpeechRecognitionImpl` to avoid shadowing the global `SpeechRecognition` type.
 const SpeechRecognitionImpl = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
 export const useSpeechRecognition = (onResult: (finalTranscript: string, interimTranscript: string) => void) => {
   const [isListening, setIsListening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const stoppedManuallyRef = useRef(false);
+  const lastErrorRef = useRef<string | null>(null);
 
-  // Use a ref to hold the latest onResult callback.
   const onResultRef = useRef(onResult);
   useEffect(() => {
     onResultRef.current = onResult;
@@ -56,7 +51,7 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
   // This effect sets up and tears down the recognition object. Runs only once.
   useEffect(() => {
     if (!SpeechRecognitionImpl) {
-      console.error("Speech Recognition API not supported in this browser.");
+      setError("Speech Recognition API not supported in this browser.");
       return;
     }
     
@@ -69,34 +64,57 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
 
     recognition.onstart = () => {
         setIsListening(true);
+        setError(null);
+        lastErrorRef.current = null;
         stoppedManuallyRef.current = false;
     };
     
     recognition.onend = () => {
       setIsListening(false);
-      // Automatically restart if it wasn't stopped manually and not unmounting.
-      if (!stoppedManuallyRef.current) {
+      // Automatically restart unless it was stopped manually or a fatal error occurred.
+      if (!stoppedManuallyRef.current && lastErrorRef.current !== 'not-allowed' && lastErrorRef.current !== 'audio-capture') {
         setTimeout(() => {
-            // Check again in case stop was called during the timeout
             if (recognitionRef.current && !stoppedManuallyRef.current) {
                 try {
                     recognitionRef.current.start();
                 } catch(e) {
-                    // This can happen if start() is called while it's still in the process of stopping.
                     console.warn("Could not restart speech recognition (may already be starting).", e);
                 }
             }
-        }, 250);
+        }, 500); // Increased delay for stability
       }
     };
 
     recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      // If the user denies permission, don't try to restart.
-      if (event.error === 'not-allowed') {
-          stoppedManuallyRef.current = true;
+      console.error('Speech recognition error event:', event);
+      let errorMessage = "An unknown error occurred with speech recognition.";
+      
+      const errorType = event.error || 'unknown';
+      lastErrorRef.current = errorType;
+
+      switch(errorType) {
+          case 'no-speech':
+            // This is not a fatal error, we can just let it restart.
+            errorMessage = null; // No need to show an error for silence.
+            break;
+          case 'audio-capture':
+            errorMessage = "Reggie can't hear you. No audio is being captured. Please check your microphone hardware.";
+            stoppedManuallyRef.current = true; // Fatal error, don't restart.
+            break;
+          case 'not-allowed':
+            errorMessage = "Microphone permission was denied. Please enable it in your browser settings to use voice commands.";
+            stoppedManuallyRef.current = true; // Fatal error, don't restart.
+            break;
+           case 'network':
+            errorMessage = "A network error occurred. Speech recognition may be unavailable.";
+            break; // Non-fatal, will attempt to restart.
+          default:
+            errorMessage = `An error occurred: ${event.error}. Please try again.`
       }
-      // onend is usually called after an error, which will handle restart logic.
+
+      if(errorMessage) {
+        setError(errorMessage);
+      }
     };
 
     recognition.onresult = (event) => {
@@ -117,7 +135,6 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
     return () => {
       stoppedManuallyRef.current = true;
       if (recognitionRef.current) {
-        // Remove listeners to prevent memory leaks and unwanted restarts
         recognitionRef.current.onstart = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.onerror = null;
@@ -134,10 +151,13 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListeningRef.current) {
       try {
+        setError(null);
+        lastErrorRef.current = null;
         stoppedManuallyRef.current = false;
         recognitionRef.current.start();
       } catch (error) {
-        console.warn("Speech recognition could not start (it may be starting already).", error);
+        console.warn("Speech recognition could not start.", error);
+        setError("Could not start listening. Please check your browser's console for details.");
       }
     }
   }, []);
@@ -149,5 +169,5 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
     }
   }, []);
 
-  return { isListening, startListening, stopListening };
+  return { isListening, error, startListening, stopListening };
 };

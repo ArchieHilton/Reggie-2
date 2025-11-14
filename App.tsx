@@ -34,6 +34,7 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A';
 
 /**
@@ -308,18 +309,21 @@ const App: React.FC = () => {
         }
     }, [isAwaitingCommand, processCommand, speak, selectedVoiceURI]);
 
-    const { startListening } = useSpeechRecognition(handleSpeechResult);
+    const { error: speechError, startListening } = useSpeechRecognition(handleSpeechResult);
 
     useEffect(() => {
         if (!apiKey) return; // Don't request mic until API key is set
 
         const grantMic = async () => {
           try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
+            // We just need to request permission. The SpeechRecognition API handles the mic itself.
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Stop the track immediately after getting permission, as we don't need to manually process it.
+            stream.getTracks().forEach(track => track.stop());
             startListening();
           } catch (err) {
-            console.error("Microphone permission denied.");
-            addMessage("Microphone access is needed for voice commands. You can still use the text chat.", "reggie");
+            console.error("Microphone permission error:", err);
+            // The hook will set a more specific error message.
           }
         };
         grantMic();
@@ -380,8 +384,9 @@ const App: React.FC = () => {
               </button>
             </div>
             
-            <div className="flex flex-col items-center justify-center space-y-8 z-10">
+            <div className="flex flex-col items-center justify-center text-center z-10">
                 <StatusIndicator status={status} />
+                {speechError && <p className="mt-4 text-red-400 max-w-sm px-4">{speechError}</p>}
             </div>
 
             <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black via-black/80 to-transparent flex flex-col">
