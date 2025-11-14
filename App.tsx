@@ -33,6 +33,7 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A';
 
 /**
@@ -235,7 +236,7 @@ const App: React.FC = () => {
                             const sourceLinks = sources
                                 .map((chunk: any) => chunk.web)
                                 .filter(Boolean) 
-                                .map((web: any) => `[${web.title}](${web.uri})`)
+                                .map((web: any) => `* [${web.title}](${web.uri})`)
                                 .join('\n');
                             if (sourceLinks) {
                                 sourcesText = `\n\n**Sources:**\n${sourceLinks}`;
@@ -276,7 +277,12 @@ const App: React.FC = () => {
         const lowerTranscript = transcript.toLowerCase();
         if (isAwaitingCommand) {
             setIsAwaitingCommand(false);
-            processCommand(transcript);
+            // ADDED: Guard against processing empty/whitespace-only transcripts.
+            if (transcript.trim()) { 
+                processCommand(transcript);
+            } else {
+                setStatus('idle'); // If transcript is empty, reset to idle.
+            }
         } else if (lowerTranscript.includes("hey reggie")) {
             const command = transcript.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
             if (command) {
