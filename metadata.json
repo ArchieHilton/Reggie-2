@@ -1,0 +1,7 @@
+{
+  "name": "Reggie AI Assistant",
+  "description": "A voice-activated AI assistant inspired by Jarvis from Iron Man. Interact via voice or text for conversations, timers, alarms, and reminders.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
