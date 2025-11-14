@@ -46,20 +46,23 @@ export const useSpeechRecognition = (onTranscript: (transcript: string) => void)
   const [isListening, setIsListening] = useState(false);
   // FIX: With the constant renamed to `SpeechRecognitionImpl`, `SpeechRecognition` can now be correctly used as a type.
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const stoppedManuallyRef = useRef(false);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
       try {
+        stoppedManuallyRef.current = false;
         recognitionRef.current.start();
         setIsListening(true);
       } catch (error) {
-        console.error("Speech recognition already started.", error);
+        console.error("Speech recognition could not start.", error);
       }
     }
   }, [isListening]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
+      stoppedManuallyRef.current = true;
       recognitionRef.current.stop();
       setIsListening(false);
     }
@@ -78,8 +81,24 @@ export const useSpeechRecognition = (onTranscript: (transcript: string) => void)
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
+    recognition.onstart = () => {
+        setIsListening(true);
+        stoppedManuallyRef.current = false;
+    };
+    
+    recognition.onend = () => {
+      setIsListening(false);
+      // Automatically restart if it wasn't stopped manually to ensure persistence
+      if (!stoppedManuallyRef.current) {
+        console.log("Speech recognition ended, restarting...");
+        try {
+            recognition.start();
+        } catch(e) {
+            console.error("Could not restart speech recognition", e);
+        }
+      }
+    };
+
     recognition.onerror = (event) => console.error('Speech recognition error:', event.error);
 
     recognition.onresult = (event) => {
@@ -97,6 +116,7 @@ export const useSpeechRecognition = (onTranscript: (transcript: string) => void)
     recognitionRef.current = recognition;
 
     return () => {
+      stoppedManuallyRef.current = true;
       recognition.stop();
     };
   }, [onTranscript]);

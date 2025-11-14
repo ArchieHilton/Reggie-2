@@ -43,8 +43,15 @@ const ChatLog: React.FC<ChatLogProps> = ({ messages }) => {
         );
       }
       
-      // It's a regular text part
-      return part;
+      // It's a regular text part, process for bold
+      const boldRegex = /(\*\*.*?\*\*)/g;
+      const subParts = part.split(boldRegex);
+      return subParts.map((subPart, j) => {
+        if (subPart.startsWith('**') && subPart.endsWith('**')) {
+          return <strong key={`${i}-${j}`}>{subPart.slice(2, -2)}</strong>;
+        }
+        return subPart;
+      });
     });
   };
 

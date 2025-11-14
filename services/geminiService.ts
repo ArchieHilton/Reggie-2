@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, FunctionDeclaration, Type, Chat } from "@google/genai";
 
 const setTimer: FunctionDeclaration = {
@@ -96,8 +97,23 @@ const openApplication: FunctionDeclaration = {
     },
 };
 
-const tools = [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic, openApplication] }];
-const systemInstruction = "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, open applications, and engage in general conversation on any topic.";
+const searchWeb: FunctionDeclaration = {
+  name: 'searchWeb',
+  description: 'Searches the web to answer questions about current events, facts, or any topic requiring up-to-date information.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      query: {
+        type: Type.STRING,
+        description: 'The search query to find information about.',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+const tools = [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic, openApplication, searchWeb] }];
+const systemInstruction = "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, open applications, search the web, and engage in general conversation on any topic.";
 
 /**
  * Creates and returns a new chat session instance.
@@ -113,4 +129,26 @@ export const createChatSession = (apiKey: string): Chat => {
         tools,
       },
     });
+};
+
+/**
+ * Performs a web search using the Gemini API with Google Search grounding.
+ * @param apiKey The user's Gemini API key.
+ * @param query The search query.
+ * @returns An object containing the summary and sources.
+ */
+export const performSearch = async (apiKey: string, query: string) => {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: query,
+        config: {
+            tools: [{googleSearch: {}}],
+        },
+    });
+    
+    const summary = response.text;
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+
+    return { summary, sources };
 };

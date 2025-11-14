@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, AssistantStatus, Timer, ScheduledEvent } from './types';
-import { createChatSession } from './services/geminiService';
+import { createChatSession, performSearch } from './services/geminiService';
 import type { Chat } from '@google/genai';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
@@ -210,6 +210,26 @@ const App: React.FC = () => {
                     } else {
                         confirmationText = `My apologies, Sir. I am unable to open ${args.applicationName} at this time.`;
                     }
+                } else if (name === 'searchWeb' && args.query) {
+                    try {
+                        const { summary, sources } = await performSearch(apiKey!, args.query as string);
+                        let sourcesText = '';
+                        if (sources && sources.length > 0) {
+                            const sourceLinks = sources
+                                .map((chunk: any) => chunk.web)
+                                .filter(Boolean) 
+                                .map((web: any) => `* [${web.title}](${web.uri})`)
+                                .join('\n');
+                            if (sourceLinks) {
+                                sourcesText = `\n\n**Sources:**\n${sourceLinks}`;
+                            }
+                        }
+                        confirmationText = `${summary}${sourcesText}`;
+
+                    } catch (searchError) {
+                        console.error("Error during web search:", searchError);
+                        confirmationText = "My apologies, Sir. I encountered an issue while searching the web.";
+                    }
                 }
                 
                 addMessage(confirmationText, 'reggie');
@@ -233,7 +253,7 @@ const App: React.FC = () => {
             setStatus('speaking');
             speak(errorMsg, selectedVoiceURI);
         }
-    }, [speak, status, selectedVoiceURI]);
+    }, [speak, status, selectedVoiceURI, apiKey]);
 
     const handleTranscript = useCallback((transcript: string) => {
         const lowerTranscript = transcript.toLowerCase();
