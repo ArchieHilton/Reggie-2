@@ -37,7 +37,6 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
-                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A';
 
 /**
@@ -314,8 +313,24 @@ const App: React.FC = () => {
         setLiveTranscript(interimTranscript || fullTranscriptRef.current);
     }, []);
 
-    const { error: speechError, startListening } = useSpeechRecognition(handleSpeechResult, processTranscript);
+    const { isListening, error: speechError, startListening } = useSpeechRecognition(handleSpeechResult, processTranscript);
     
+    // --- Manual Microphone Activation ---
+    const handleActivateMic = useCallback(async () => {
+        if (isListening || status === 'speaking' || status === 'thinking') {
+            return;
+        }
+        try {
+            // This is required by mobile browsers: getUserMedia must be in a user gesture handler.
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            startListening();
+        } catch (err) {
+            // The useSpeechRecognition hook will catch and display the 'not-allowed' error.
+            console.error("Microphone permission error on activation:", err);
+        }
+    }, [isListening, status, startListening]);
+
+
     // --- Remaining Effects ---
     useEffect(() => {
         const loadVoices = () => {
@@ -333,19 +348,6 @@ const App: React.FC = () => {
         }
         loadVoices();
     }, [selectedVoiceURI]);
-
-    useEffect(() => {
-        if (!apiKey) return;
-        const grantMic = async () => {
-          try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-            startListening();
-          } catch (err) {
-            console.error("Microphone permission error:", err);
-          }
-        };
-        grantMic();
-    }, [apiKey, startListening]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -394,7 +396,9 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex flex-col items-center justify-center text-center z-10">
-                <StatusIndicator status={status} />
+                <div onClick={handleActivateMic} className="cursor-pointer" role="button" aria-label="Activate microphone">
+                    <StatusIndicator status={status} isListening={isListening} />
+                </div>
                 {speechError && <p className="mt-4 text-red-400 max-w-sm px-4">{speechError}</p>}
             </div>
 

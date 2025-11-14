@@ -3,10 +3,14 @@ import type { AssistantStatus } from '../types';
 
 interface StatusIndicatorProps {
   status: AssistantStatus;
+  isListening: boolean;
 }
 
-const StatusIndicator: React.FC<StatusIndicatorProps> = ({ status }) => {
+const StatusIndicator: React.FC<StatusIndicatorProps> = ({ status, isListening }) => {
   const getStatusText = () => {
+    if (!isListening) {
+      return 'Tap to Activate';
+    }
     switch (status) {
       case 'listening':
         return 'Listening...';
@@ -25,9 +29,9 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ status }) => {
   return (
     <div className="relative w-64 h-64 flex items-center justify-center">
       {/* Animated Rings */}
-      <div className={`${ringClasses} w-full h-full ${status === 'listening' || status === 'speaking' ? 'animate-ping' : 'animate-pulse'}`} style={{ animationDuration: '2s' }}></div>
-      <div className={`${ringClasses} w-48 h-48 ${status === 'thinking' ? 'animate-spin' : 'animate-pulse'}`} style={{ animationDuration: '3s' }}></div>
-      <div className={`${ringClasses} w-32 h-32 animate-pulse`} style={{ animationDuration: '2.5s' }}></div>
+      <div className={`${ringClasses} w-full h-full ${isListening ? (status === 'listening' || status === 'speaking' ? 'animate-ping' : 'animate-pulse') : ''}`} style={{ animationDuration: '2s' }}></div>
+      <div className={`${ringClasses} w-48 h-48 ${isListening ? (status === 'thinking' ? 'animate-spin' : 'animate-pulse') : ''}`} style={{ animationDuration: '3s' }}></div>
+      <div className={`${ringClasses} w-32 h-32 ${isListening ? 'animate-pulse' : ''}`} style={{ animationDuration: '2.5s' }}></div>
       
       {/* Central Orb */}
       <div className="absolute w-24 h-24 bg-cyan-700 rounded-full shadow-lg shadow-cyan-500/50 flex items-center justify-center">
