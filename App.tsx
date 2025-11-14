@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, AssistantStatus, Timer, ScheduledEvent } from './types';
-import { chat } from './services/geminiService';
+import { createChatSession } from './services/geminiService';
+import type { Chat } from '@google/genai';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import StatusIndicator from './components/StatusIndicator';
 import ChatLog from './components/ChatLog';
 import TextInput from './components/TextInput';
 import SettingsModal from './components/SettingsModal';
+import ApiKeyModal from './components/ApiKeyModal';
 
 
 // Base64 encoded beep sound for alerts
@@ -36,6 +37,10 @@ const App: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [status, setStatus] = useState<AssistantStatus>('idle');
     const [isAwaitingCommand, setIsAwaitingCommand] = useState(false);
+    
+    const [apiKey, setApiKey] = useState<string | null>(null);
+    const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+    const chatRef = useRef<Chat | null>(null);
 
     const [timers, setTimers] = useState<Timer[]>([]);
     const [events, setEvents] = useState<ScheduledEvent[]>([]);
@@ -44,6 +49,69 @@ const App: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
     const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
+    const wakeLockRef = useRef<any>(null); // For Screen Wake Lock API
+
+    // Screen Wake Lock Effect
+    useEffect(() => {
+        const requestWakeLock = async () => {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLockRef.current = await navigator.wakeLock.request('screen');
+                    console.log('Screen Wake Lock is active.');
+                    wakeLockRef.current.addEventListener('release', () => {
+                        console.log('Screen Wake Lock was released.');
+                        wakeLockRef.current = null;
+                    });
+                } catch (err: any) {
+                    console.error(`Could not acquire wake lock: ${err.name}, ${err.message}`);
+                }
+            } else {
+                console.warn('Screen Wake Lock API not supported.');
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (wakeLockRef.current === null && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        };
+
+        requestWakeLock();
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            if (wakeLockRef.current !== null) {
+                wakeLockRef.current.release();
+                wakeLockRef.current = null;
+            }
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, []);
+
+    // Load API Key from local storage on initial render
+    useEffect(() => {
+        const storedKey = localStorage.getItem('gemini-api-key');
+        if (storedKey) {
+            handleApiKeyUpdate(storedKey);
+        }
+    }, []);
+
+    const handleApiKeyUpdate = (newKey: string) => {
+        try {
+            chatRef.current = createChatSession(newKey);
+            localStorage.setItem('gemini-api-key', newKey);
+            setApiKey(newKey);
+            setApiKeyError(null);
+            return true;
+        } catch (e) {
+            console.error("Invalid API Key:", e);
+            setApiKeyError('The provided API Key is invalid. Please check it and try again.');
+            localStorage.removeItem('gemini-api-key');
+            setApiKey(null);
+            chatRef.current = null;
+            return false;
+        }
+    };
 
     const handleSpeechEnd = useCallback(() => setStatus('idle'), []);
     const { speak } = useSpeechSynthesis(handleSpeechEnd);
@@ -72,17 +140,15 @@ const App: React.FC = () => {
     };
 
     const processCommand = useCallback(async (command: string) => {
-        if (!command || status === 'thinking' || status === 'speaking') return;
+        if (!command || status === 'thinking' || status === 'speaking' || !chatRef.current) return;
         
         addMessage(command, 'user');
         setStatus('thinking');
 
         try {
-            const result = await chat.sendMessage({ message: command });
+            const result = await chatRef.current.sendMessage({ message: command });
             const responseText = result.text;
             const functionCalls = result.functionCalls;
-            
-            // FIX: Removed grounding metadata handling as googleSearch tool is disabled.
 
             if (functionCalls && functionCalls.length > 0) {
                 const call = functionCalls[0];
@@ -121,6 +187,29 @@ const App: React.FC = () => {
                     setEvents(prev => [...prev, newEvent]);
                     const eventType = name === 'setAlarm' ? 'alarm' : 'reminder';
                     confirmationText = `Got it, Sir. I'll set a${name === 'setAlarm' ? 'n' : ''} ${eventType} for ${args.subject || args.label || ''} at ${triggerTime.toLocaleTimeString()}.`;
+                } else if (name === 'openApplication' && args.applicationName) {
+                    const appName = (args.applicationName as string).toLowerCase();
+                    const appUriMap: Record<string, string> = {
+                        'calculator': 'calculator:',
+                        'spotify': 'spotify:',
+                        'slack': 'slack:',
+                        'discord': 'discord:',
+                        'zoom': 'zoommtg:',
+                        'visual studio code': 'vscode:',
+                        'vscode': 'vscode:',
+                        'word': 'ms-word:',
+                        'excel': 'ms-excel:',
+                        'powerpoint': 'ms-powerpoint:',
+                        'notepad': 'notepad:',
+                    };
+                    const uri = appUriMap[appName];
+
+                    if (uri) {
+                        window.open(uri, '_self');
+                        confirmationText = `Certainly, Sir. Opening ${args.applicationName}.`;
+                    } else {
+                        confirmationText = `My apologies, Sir. I am unable to open ${args.applicationName} at this time.`;
+                    }
                 }
                 
                 addMessage(confirmationText, 'reggie');
@@ -165,6 +254,8 @@ const App: React.FC = () => {
     const { startListening } = useSpeechRecognition(handleTranscript);
 
     useEffect(() => {
+        if (!apiKey) return; // Don't request mic until API key is set
+
         const grantMic = async () => {
           try {
             await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -175,14 +266,12 @@ const App: React.FC = () => {
           }
         };
         grantMic();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [apiKey, startListening]);
 
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
             
-            // Check timers
             setTimers(prev => {
                 const activeTimers = prev.filter(t => t.endTime > now);
                 const expiredTimers = prev.filter(t => t.endTime <= now);
@@ -197,7 +286,6 @@ const App: React.FC = () => {
                 return activeTimers;
             });
 
-            // Check events
             setEvents(prev => {
                 const activeEvents = prev.filter(e => e.triggerTime > now);
                 const expiredEvents = prev.filter(e => e.triggerTime <= now);
@@ -221,13 +309,17 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, [speak, selectedVoiceURI]);
     
+    if (!apiKey) {
+        return <ApiKeyModal onSave={handleApiKeyUpdate} error={apiKeyError} />;
+    }
+
     return (
         <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-cyan-300 font-mono overflow-hidden">
             <audio ref={alertAudioRef} src={BEEP_SOUND} preload="auto" />
             <div className="absolute top-4 left-4 text-2xl font-bold tracking-[0.2em]">R.E.G.G.I.E.</div>
             <div className="absolute top-4 right-4 z-20">
               <button onClick={() => setIsSettingsOpen(true)} className="p-2 rounded-full hover:bg-cyan-800/50 transition-colors" aria-label="Open settings">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2.82l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2.82l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2.82l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l-.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2.82l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
             </div>
             
@@ -248,6 +340,8 @@ const App: React.FC = () => {
                 voices={availableVoices}
                 selectedVoiceURI={selectedVoiceURI}
                 onVoiceChange={setSelectedVoiceURI}
+                apiKey={apiKey}
+                onApiKeyChange={handleApiKeyUpdate}
             />
         </div>
     );

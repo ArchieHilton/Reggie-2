@@ -1,11 +1,6 @@
 
 import { GoogleGenAI, FunctionDeclaration, Type, Chat } from "@google/genai";
 
-// FIX: Per Gemini API guidelines, the API key must be obtained from process.env.API_KEY
-// and is assumed to be configured in the execution environment. This also fixes the
-// "Property 'env' does not exist on type 'ImportMeta'" error.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 const setTimer: FunctionDeclaration = {
   name: 'setTimer',
   description: 'Sets a timer for a specified duration.',
@@ -86,14 +81,36 @@ const findMusic: FunctionDeclaration = {
   },
 };
 
-export const chat: Chat = ai.chats.create({
-  model: 'gemini-2.5-flash',
-  config: {
-    // FIX: Updated system instruction to remove reference to web search, as the
-    // googleSearch tool has been removed to comply with API guidelines.
-    systemInstruction: "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, and engage in general conversation on any topic.",
-    // FIX: Per Gemini API guidelines, googleSearch cannot be used with other tools
-    // like functionDeclarations. Removing googleSearch to prioritize core assistant features.
-    tools: [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic] }],
-  },
-});
+const openApplication: FunctionDeclaration = {
+    name: 'openApplication',
+    description: 'Opens an application on the user\'s computer.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            applicationName: {
+                type: Type.STRING,
+                description: 'The name of the application to open. e.g., "Calculator", "Spotify", "VS Code".',
+            },
+        },
+        required: ['applicationName'],
+    },
+};
+
+const tools = [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic, openApplication] }];
+const systemInstruction = "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, open applications, and engage in general conversation on any topic.";
+
+/**
+ * Creates and returns a new chat session instance.
+ * @param apiKey The user's Gemini API key.
+ * @returns A Chat instance.
+ */
+export const createChatSession = (apiKey: string): Chat => {
+    const ai = new GoogleGenAI({ apiKey });
+    return ai.chats.create({
+      model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction,
+        tools,
+      },
+    });
+};
