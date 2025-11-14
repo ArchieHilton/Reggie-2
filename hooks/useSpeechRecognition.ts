@@ -27,6 +27,7 @@ interface SpeechRecognition extends EventTarget {
     lang: string;
     onstart: (() => void) | null;
     onend: (() => void) | null;
+    onspeechend: (() => void) | null;
     onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
     onresult: ((event: SpeechRecognitionEvent) => void) | null;
     start: () => void;
@@ -35,7 +36,10 @@ interface SpeechRecognition extends EventTarget {
 
 const SpeechRecognitionImpl = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-export const useSpeechRecognition = (onResult: (finalTranscript: string, interimTranscript: string) => void) => {
+export const useSpeechRecognition = (
+    onResult: (finalTranscript: string, interimTranscript: string) => void,
+    onCommandBoundary: () => void
+) => {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -48,6 +52,11 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
     onResultRef.current = onResult;
   }, [onResult]);
   
+  const onCommandBoundaryRef = useRef(onCommandBoundary);
+  useEffect(() => {
+    onCommandBoundaryRef.current = onCommandBoundary;
+  }, [onCommandBoundary]);
+
   // This effect sets up and tears down the recognition object. Runs only once.
   useEffect(() => {
     if (!SpeechRecognitionImpl) {
@@ -84,6 +93,10 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
         }, 500); // Increased delay for stability
       }
     };
+    
+    recognition.onspeechend = () => {
+        onCommandBoundaryRef.current();
+    };
 
     recognition.onerror = (event) => {
       console.error('Speech recognition error event:', event);
@@ -96,6 +109,8 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
           case 'no-speech':
             // This is not a fatal error, we can just let it restart.
             errorMessage = null; // No need to show an error for silence.
+            // When there's no speech, it might mean the end of a command.
+            onCommandBoundaryRef.current();
             break;
           case 'audio-capture':
             errorMessage = "Reggie can't hear you. No audio is being captured. Please check your microphone hardware.";
@@ -137,13 +152,14 @@ export const useSpeechRecognition = (onResult: (finalTranscript: string, interim
       if (recognitionRef.current) {
         recognitionRef.current.onstart = null;
         recognitionRef.current.onend = null;
+        recognitionRef.current.onspeechend = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.stop();
         recognitionRef.current = null;
       }
     };
-  }, []); // Empty dependency array ensures this runs only once.
+  }, [onCommandBoundary]); // Empty dependency array ensures this runs only once.
 
   const isListeningRef = useRef(isListening);
   isListeningRef.current = isListening;

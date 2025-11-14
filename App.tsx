@@ -35,6 +35,9 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
+                   '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A' +
                    '/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A';
 
 /**
@@ -53,6 +56,7 @@ const cleanForSpeech = (text: string): string => {
 
 
 const App: React.FC = () => {
+    // --- State and Refs ---
     const [messages, setMessages] = useState<Message[]>([]);
     const [status, setStatus] = useState<AssistantStatus>('idle');
     const [isAwaitingCommand, setIsAwaitingCommand] = useState(false);
@@ -60,21 +64,21 @@ const App: React.FC = () => {
     
     const [apiKey, setApiKey] = useState<string | null>(null);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-    const chatRef = useRef<Chat | null>(null);
-
+    
     const [timers, setTimers] = useState<Timer[]>([]);
     const [events, setEvents] = useState<ScheduledEvent[]>([]);
-    const alertAudioRef = useRef<HTMLAudioElement>(null);
-
+    
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
     const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
-    const wakeLockRef = useRef<any>(null); // For Screen Wake Lock API
-
-    const commandTimerRef = useRef<number | null>(null);
+    
+    const chatRef = useRef<Chat | null>(null);
+    const alertAudioRef = useRef<HTMLAudioElement>(null);
+    const wakeLockRef = useRef<any>(null);
     const fullTranscriptRef = useRef<string>('');
+    const commandQueueRef = useRef<string | null>(null);
 
-    // Screen Wake Lock Effect
+    // --- Effects for Initialization and Setup ---
     useEffect(() => {
         const requestWakeLock = async () => {
             if ('wakeLock' in navigator) {
@@ -111,7 +115,6 @@ const App: React.FC = () => {
         };
     }, []);
 
-    // Load API Key from local storage on initial render
     useEffect(() => {
         const storedKey = localStorage.getItem('gemini-api-key');
         if (storedKey) {
@@ -119,6 +122,7 @@ const App: React.FC = () => {
         }
     }, []);
 
+    // --- Helper Functions ---
     const handleApiKeyUpdate = (newKey: string) => {
         try {
             chatRef.current = createChatSession(newKey);
@@ -135,42 +139,30 @@ const App: React.FC = () => {
             return false;
         }
     };
+    
+    const addMessage = useCallback((text: string, sender: 'user' | 'reggie') => {
+        setMessages(prev => [...prev, { id: Date.now().toString(), text, sender }]);
+    }, []);
 
+    // --- Speech Synthesis ---
     const handleSpeechEnd = useCallback(() => {
         if (isAwaitingCommand) {
-            setStatus('listening'); // Transition to listening after saying "Yes, Sir?"
+            setStatus('listening');
         } else {
-            setStatus('idle'); // Back to idle after speaking a normal response
+            setStatus('idle');
         }
     }, [isAwaitingCommand]);
 
     const { speak } = useSpeechSynthesis(handleSpeechEnd);
 
-    useEffect(() => {
-        const loadVoices = () => {
-            const voices = window.speechSynthesis.getVoices();
-            if (voices.length > 0) {
-                setAvailableVoices(voices);
-                if (!selectedVoiceURI) {
-                    const defaultVoice = voices.find(v => v.name.includes('Google US English')) || voices.find(v => v.lang === 'en-US') || voices[0];
-                    if (defaultVoice) {
-                        setSelectedVoiceURI(defaultVoice.voiceURI);
-                    }
-                }
-            }
-        };
-        if (typeof window.speechSynthesis.onvoiceschanged !== 'undefined') {
-            window.speechSynthesis.onvoiceschanged = loadVoices;
-        }
-        loadVoices();
-    }, [selectedVoiceURI]);
-
-    const addMessage = (text: string, sender: 'user' | 'reggie') => {
-        setMessages(prev => [...prev, { id: Date.now().toString(), text, sender }]);
-    };
-
+    // --- Core Command Processing Logic ---
     const processCommand = useCallback(async (command: string) => {
-        if (!command || status === 'thinking' || status === 'speaking' || !chatRef.current) return;
+        if (!command || status === 'thinking' || !chatRef.current) return;
+        
+        if (status === 'speaking') {
+            commandQueueRef.current = command;
+            return;
+        }
         
         addMessage(command, 'user');
         setStatus('thinking');
@@ -223,17 +215,10 @@ const App: React.FC = () => {
                 } else if (name === 'openApplication' && args.applicationName) {
                     const appName = (args.applicationName as string).toLowerCase();
                     const appUriMap: Record<string, string> = {
-                        'calculator': 'calculator:',
-                        'spotify': 'spotify:',
-                        'slack': 'slack:',
-                        'discord': 'discord:',
-                        'zoom': 'zoommtg:',
-                        'visual studio code': 'vscode:',
-                        'vscode': 'vscode:',
-                        'word': 'ms-word:',
-                        'excel': 'ms-excel:',
-                        'powerpoint': 'ms-powerpoint:',
-                        'notepad': 'notepad:',
+                        'calculator': 'calculator:', 'spotify': 'spotify:', 'slack': 'slack:',
+                        'discord': 'discord:', 'zoom': 'zoommtg:', 'visual studio code': 'vscode:',
+                        'vscode': 'vscode:', 'word': 'ms-word:', 'excel': 'ms-excel:',
+                        'powerpoint': 'ms-powerpoint:', 'notepad': 'notepad:',
                     };
                     const uri = appUriMap[appName];
 
@@ -249,16 +234,11 @@ const App: React.FC = () => {
                         let sourcesText = '';
                         if (sources && sources.length > 0) {
                             const sourceLinks = sources
-                                .map((chunk: any) => chunk.web)
-                                .filter(Boolean) 
-                                .map((web: any) => `* [${web.title}](${web.uri})`)
-                                .join('\n');
-                            if (sourceLinks) {
-                                sourcesText = `\n\n**Sources:**\n${sourceLinks}`;
-                            }
+                                .map((chunk: any) => chunk.web).filter(Boolean) 
+                                .map((web: any) => `* [${web.title}](${web.uri})`).join('\n');
+                            if (sourceLinks) sourcesText = `\n\n**Sources:**\n${sourceLinks}`;
                         }
                         confirmationText = `${summary}${sourcesText}`;
-
                     } catch (searchError) {
                         console.error("Error during web search:", searchError);
                         confirmationText = "My apologies, Sir. I encountered an issue while searching the web.";
@@ -286,73 +266,82 @@ const App: React.FC = () => {
             setStatus('speaking');
             speak(errorMsg, selectedVoiceURI);
         }
-    }, [speak, status, selectedVoiceURI, apiKey]);
+    }, [speak, status, selectedVoiceURI, apiKey, addMessage, setEvents, setTimers]);
+    
+    useEffect(() => {
+      if (status !== 'speaking' && commandQueueRef.current) {
+        const commandToProcess = commandQueueRef.current;
+        commandQueueRef.current = null;
+        processCommand(commandToProcess);
+      }
+    }, [status, processCommand]);
+
+    // --- Speech Recognition Callbacks and Hook ---
+    const processTranscript = useCallback(() => {
+        if (!fullTranscriptRef.current) {
+            if (isAwaitingCommand) {
+                setIsAwaitingCommand(false);
+                setStatus('idle');
+            }
+            return;
+        }
+
+        const transcriptToProcess = fullTranscriptRef.current;
+        fullTranscriptRef.current = ''; 
+        setLiveTranscript(''); 
+
+        const lowerTranscript = transcriptToProcess.toLowerCase();
+        
+        if (isAwaitingCommand) {
+            setIsAwaitingCommand(false);
+            processCommand(transcriptToProcess);
+        } else if (lowerTranscript.includes("hey reggie")) {
+            const command = transcriptToProcess.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
+            if (command) {
+                processCommand(command);
+            } else {
+                setIsAwaitingCommand(true);
+                setStatus('speaking');
+                speak("Yes, Sir?", selectedVoiceURI);
+            }
+        }
+    }, [isAwaitingCommand, processCommand, speak, selectedVoiceURI]);
 
     const handleSpeechResult = useCallback((finalTranscript: string, interimTranscript: string) => {
-        // If there's a final transcript, append it to the ref to build the full sentence.
         if (finalTranscript) {
             fullTranscriptRef.current = (fullTranscriptRef.current + ' ' + finalTranscript).trim();
         }
-        
-        // Update the visual live transcript. Show interim if available, otherwise show the accumulating final transcript.
         setLiveTranscript(interimTranscript || fullTranscriptRef.current);
+    }, []);
 
-        // Clear any existing timer to reset the "pause" countdown
-        if (commandTimerRef.current) {
-            clearTimeout(commandTimerRef.current);
+    const { error: speechError, startListening } = useSpeechRecognition(handleSpeechResult, processTranscript);
+    
+    // --- Remaining Effects ---
+    useEffect(() => {
+        const loadVoices = () => {
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                setAvailableVoices(voices);
+                if (!selectedVoiceURI) {
+                    const defaultVoice = voices.find(v => v.name.includes('Google US English')) || voices.find(v => v.lang === 'en-US') || voices[0];
+                    if (defaultVoice) setSelectedVoiceURI(defaultVoice.voiceURI);
+                }
+            }
+        };
+        if (typeof window.speechSynthesis.onvoiceschanged !== 'undefined') {
+            window.speechSynthesis.onvoiceschanged = loadVoices;
         }
-
-        // Set a new timer. If the user keeps talking, this timer will be reset.
-        // It only fires when the user pauses for 1.2 seconds.
-        commandTimerRef.current = window.setTimeout(() => {
-            const transcriptToProcess = fullTranscriptRef.current;
-            fullTranscriptRef.current = ''; // Reset for the next complete utterance.
-            setLiveTranscript(''); // Clear the display now that we're processing.
-
-            if (!transcriptToProcess) {
-                // This block runs if the timer fires after a pause with no new final text.
-                // e.g., user was prompted "Yes, sir?" but remained silent.
-                if (isAwaitingCommand) {
-                    setIsAwaitingCommand(false);
-                    setStatus('idle');
-                }
-                return;
-            }
-
-            const lowerTranscript = transcriptToProcess.toLowerCase();
-            
-            if (isAwaitingCommand) {
-                setIsAwaitingCommand(false);
-                processCommand(transcriptToProcess);
-            } else if (lowerTranscript.includes("hey reggie")) {
-                const command = transcriptToProcess.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
-                if (command) {
-                    processCommand(command);
-                } else {
-                    setIsAwaitingCommand(true);
-                    setStatus('speaking');
-                    speak("Yes, Sir?", selectedVoiceURI);
-                }
-            }
-        }, 1200); // 1.2 second pause before processing.
-
-    }, [isAwaitingCommand, processCommand, speak, selectedVoiceURI]);
-
-    const { error: speechError, startListening } = useSpeechRecognition(handleSpeechResult);
+        loadVoices();
+    }, [selectedVoiceURI]);
 
     useEffect(() => {
-        if (!apiKey) return; // Don't request mic until API key is set
-
+        if (!apiKey) return;
         const grantMic = async () => {
           try {
-            // We just need to request permission. The SpeechRecognition API handles the mic itself.
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Stop the track immediately after getting permission, as we don't need to manually process it.
-            stream.getTracks().forEach(track => track.stop());
+            await navigator.mediaDevices.getUserMedia({ audio: true });
             startListening();
           } catch (err) {
             console.error("Microphone permission error:", err);
-            // The hook will set a more specific error message.
           }
         };
         grantMic();
@@ -361,44 +350,35 @@ const App: React.FC = () => {
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
-            
             setTimers(prev => {
                 const activeTimers = prev.filter(t => t.endTime > now);
                 const expiredTimers = prev.filter(t => t.endTime <= now);
-                if (expiredTimers.length > 0) {
-                    expiredTimers.forEach(t => {
-                        const message = `Sir, your ${t.label ? `${t.label} ` : ''}timer is done!`;
-                        addMessage(message, 'reggie');
-                        speak(message, selectedVoiceURI);
-                        alertAudioRef.current?.play();
-                    });
-                }
+                expiredTimers.forEach(t => {
+                    const message = `Sir, your ${t.label ? `${t.label} ` : ''}timer is done!`;
+                    addMessage(message, 'reggie');
+                    speak(message, selectedVoiceURI);
+                    alertAudioRef.current?.play();
+                });
                 return activeTimers;
             });
-
             setEvents(prev => {
                 const activeEvents = prev.filter(e => e.triggerTime > now);
                 const expiredEvents = prev.filter(e => e.triggerTime <= now);
-                if (expiredEvents.length > 0) {
-                     expiredEvents.forEach(e => {
-                        let message = '';
-                        if (e.type === 'alarm') {
-                            message = `Sir, it's time! ${e.label || 'Your alarm is going off.'}`;
-                        } else {
-                            message = `A reminder, Sir: ${e.subject || e.label || 'Time for your reminder.'}`;
-                        }
-                        addMessage(message, 'reggie');
-                        speak(message, selectedVoiceURI);
-                        alertAudioRef.current?.play();
-                    });
-                }
+                expiredEvents.forEach(e => {
+                    let message = e.type === 'alarm'
+                        ? `Sir, it's time! ${e.label || 'Your alarm is going off.'}`
+                        : `A reminder, Sir: ${e.subject || e.label || 'Time for your reminder.'}`;
+                    addMessage(message, 'reggie');
+                    speak(message, selectedVoiceURI);
+                    alertAudioRef.current?.play();
+                });
                 return activeEvents;
             });
         }, 1000);
-
         return () => clearInterval(interval);
-    }, [speak, selectedVoiceURI]);
+    }, [speak, selectedVoiceURI, addMessage]);
     
+    // --- Render Logic ---
     if (!apiKey) {
         return <ApiKeyModal onSave={handleApiKeyUpdate} error={apiKeyError} />;
     }
