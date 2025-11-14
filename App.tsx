@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, AssistantStatus, Timer, ScheduledEvent } from './types';
 import { chat } from './services/geminiService';
@@ -78,20 +79,10 @@ const App: React.FC = () => {
 
         try {
             const result = await chat.sendMessage({ message: command });
-            let responseText = result.text;
+            const responseText = result.text;
             const functionCalls = result.functionCalls;
             
-            const groundingMetadata = result.candidates?.[0]?.groundingMetadata;
-            if (groundingMetadata?.groundingChunks?.length > 0) {
-              const sources = groundingMetadata.groundingChunks
-                .map(chunk => chunk.web && `[${chunk.web.title || 'Source'}](${chunk.web.uri})`)
-                .filter(Boolean)
-                .join('\n');
-              if (sources) {
-                responseText += `\n\n**Sources:**\n${sources}`;
-              }
-            }
-
+            // FIX: Removed grounding metadata handling as googleSearch tool is disabled.
 
             if (functionCalls && functionCalls.length > 0) {
                 const call = functionCalls[0];

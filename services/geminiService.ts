@@ -1,11 +1,10 @@
+
 import { GoogleGenAI, FunctionDeclaration, Type, Chat } from "@google/genai";
 
-const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+// FIX: Per Gemini API guidelines, the API key must be obtained from process.env.API_KEY
+// and is assumed to be configured in the execution environment. This also fixes the
+// "Property 'env' does not exist on type 'ImportMeta'" error.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const setTimer: FunctionDeclaration = {
   name: 'setTimer',
@@ -90,7 +89,11 @@ const findMusic: FunctionDeclaration = {
 export const chat: Chat = ai.chats.create({
   model: 'gemini-2.5-flash',
   config: {
-    systemInstruction: "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can search the web for information, manage timers, alarms, reminders, find music, and engage in general conversation on any topic.",
-    tools: [{ googleSearch: {} }, { functionDeclarations: [setTimer, setAlarm, setReminder, findMusic] }],
+    // FIX: Updated system instruction to remove reference to web search, as the
+    // googleSearch tool has been removed to comply with API guidelines.
+    systemInstruction: "You are Reggie, a witty and helpful AI assistant, inspired by Jarvis. Address the user as 'Sir'. Keep responses concise and helpful. You can manage timers, alarms, reminders, find music, and engage in general conversation on any topic.",
+    // FIX: Per Gemini API guidelines, googleSearch cannot be used with other tools
+    // like functionDeclarations. Removing googleSearch to prioritize core assistant features.
+    tools: [{ functionDeclarations: [setTimer, setAlarm, setReminder, findMusic] }],
   },
 });
