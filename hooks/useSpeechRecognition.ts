@@ -42,18 +42,16 @@ interface SpeechRecognition extends EventTarget {
 // The constant is renamed to `SpeechRecognitionImpl` to avoid shadowing the global `SpeechRecognition` type.
 const SpeechRecognitionImpl = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-export const useSpeechRecognition = (onTranscript: (transcript: string) => void) => {
+export const useSpeechRecognition = (onResult: (finalTranscript: string, interimTranscript: string) => void) => {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const stoppedManuallyRef = useRef(false);
 
-  // Use a ref to hold the latest onTranscript callback.
-  // This allows the main effect to have an empty dependency array
-  // while still calling the latest version of the callback.
-  const onTranscriptRef = useRef(onTranscript);
+  // Use a ref to hold the latest onResult callback.
+  const onResultRef = useRef(onResult);
   useEffect(() => {
-    onTranscriptRef.current = onTranscript;
-  }, [onTranscript]);
+    onResultRef.current = onResult;
+  }, [onResult]);
   
   // This effect sets up and tears down the recognition object. Runs only once.
   useEffect(() => {
@@ -102,15 +100,17 @@ export const useSpeechRecognition = (onTranscript: (transcript: string) => void)
     };
 
     recognition.onresult = (event) => {
+      let interimTranscript = '';
       let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
         }
       }
-      if (finalTranscript) {
-        onTranscriptRef.current(finalTranscript.trim());
-      }
+      onResultRef.current(finalTranscript.trim(), interimTranscript.trim());
     };
     
     // Cleanup on component unmount

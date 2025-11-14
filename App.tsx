@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, AssistantStatus, Timer, ScheduledEvent } from './types';
 import { createChatSession, performSearch } from './services/geminiService';
@@ -10,6 +9,7 @@ import ChatLog from './components/ChatLog';
 import TextInput from './components/TextInput';
 import SettingsModal from './components/SettingsModal';
 import ApiKeyModal from './components/ApiKeyModal';
+import LiveTranscript from './components/LiveTranscript';
 
 
 // Base64 encoded beep sound for alerts
@@ -55,6 +55,7 @@ const App: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [status, setStatus] = useState<AssistantStatus>('idle');
     const [isAwaitingCommand, setIsAwaitingCommand] = useState(false);
+    const [liveTranscript, setLiveTranscript] = useState('');
     
     const [apiKey, setApiKey] = useState<string | null>(null);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
@@ -131,7 +132,14 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSpeechEnd = useCallback(() => setStatus('idle'), []);
+    const handleSpeechEnd = useCallback(() => {
+        if (isAwaitingCommand) {
+            setStatus('listening'); // Transition to listening after saying "Yes, Sir?"
+        } else {
+            setStatus('idle'); // Back to idle after speaking a normal response
+        }
+    }, [isAwaitingCommand]);
+
     const { speak } = useSpeechSynthesis(handleSpeechEnd);
 
     useEffect(() => {
@@ -273,28 +281,34 @@ const App: React.FC = () => {
         }
     }, [speak, status, selectedVoiceURI, apiKey]);
 
-    const handleTranscript = useCallback((transcript: string) => {
-        const lowerTranscript = transcript.toLowerCase();
+    const handleSpeechResult = useCallback((finalTranscript: string, interimTranscript: string) => {
+        setLiveTranscript(interimTranscript);
+
+        if (!finalTranscript) return; // Only act on final transcripts
+
+        setLiveTranscript(''); // Clear live transcript after final result
+        const lowerTranscript = finalTranscript.toLowerCase();
+
         if (isAwaitingCommand) {
             setIsAwaitingCommand(false);
-            // ADDED: Guard against processing empty/whitespace-only transcripts.
-            if (transcript.trim()) { 
-                processCommand(transcript);
+            if (finalTranscript.trim()) {
+                processCommand(finalTranscript);
             } else {
-                setStatus('idle'); // If transcript is empty, reset to idle.
+                setStatus('idle'); // If nothing is said, return to idle
             }
         } else if (lowerTranscript.includes("hey reggie")) {
-            const command = transcript.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
+            const command = finalTranscript.substring(lowerTranscript.lastIndexOf("hey reggie") + "hey reggie".length).trim();
             if (command) {
                 processCommand(command);
             } else {
                 setIsAwaitingCommand(true);
-                setStatus('listening');
+                setStatus('speaking');
+                speak("Yes, Sir?", selectedVoiceURI);
             }
         }
-    }, [isAwaitingCommand, processCommand]);
+    }, [isAwaitingCommand, processCommand, speak, selectedVoiceURI]);
 
-    const { startListening } = useSpeechRecognition(handleTranscript);
+    const { startListening } = useSpeechRecognition(handleSpeechResult);
 
     useEffect(() => {
         if (!apiKey) return; // Don't request mic until API key is set
@@ -374,6 +388,7 @@ const App: React.FC = () => {
                 <div className="flex-grow">
                   <ChatLog messages={messages} />
                 </div>
+                <LiveTranscript transcript={liveTranscript} />
                 <TextInput onSendMessage={processCommand} disabled={status !== 'idle' && status !== 'listening'} />
             </div>
 
